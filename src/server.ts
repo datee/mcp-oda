@@ -155,6 +155,79 @@ export class OdaServer {
     );
 
     this.mcpServer.registerTool(
+      "saved_list_create",
+      {
+        description:
+          "Create an empty Oda shopping list with the user's agreed title and optional description. Changes saved lists, not the cart. On an uncertain outcome, check existing lists before retrying.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+        inputSchema: {
+          title: z.string().trim().min(1).max(255),
+          description: z.string().optional(),
+          confirmation: z
+            .literal("CREATE SAVED LIST")
+            .describe(
+              "Use only after the user has authorized creating this list.",
+            ),
+        },
+      },
+      this.toolHandler("saved_list_create", async ({ title, description }) =>
+        this.jsonResult(
+          await this.getClient().createSavedList(title, description),
+        ),
+      ),
+    );
+
+    this.mcpServer.registerTool(
+      "saved_list_replace_product",
+      {
+        description:
+          "Replace an agreed product in a saved Oda list and verify the result. Preserves its quantity unless replacement_quantity is provided. Rejects a replacement already in the list and zero-quantity source items. Changes the list, not the cart. An uncertain result must be checked before retrying.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+        inputSchema: {
+          list_id: z.number().int().positive(),
+          old_product_id: z.number().int().positive(),
+          new_product_id: z.number().int().positive(),
+          replacement_quantity: z.number().int().positive().optional(),
+          confirmation: z
+            .literal("UPDATE SAVED LIST")
+            .describe(
+              "Use only after the user has authorized this replacement.",
+            ),
+        },
+      },
+      this.toolHandler(
+        "saved_list_replace_product",
+        async ({
+          list_id,
+          old_product_id,
+          new_product_id,
+          replacement_quantity,
+        }) => {
+          const result = await this.getClient().replaceProductInSavedList(
+            list_id,
+            old_product_id,
+            new_product_id,
+            replacement_quantity,
+          );
+          return {
+            ...this.jsonResult(result),
+            isError: result.status !== "verified",
+          };
+        },
+      ),
+    );
+
+    this.mcpServer.registerTool(
       "saved_list_add_product",
       {
         description:

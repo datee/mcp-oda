@@ -149,6 +149,52 @@ const savedListCmd = program
   .description("Saved Oda shopping-list commands");
 
 savedListCmd
+  .command("create <title>")
+  .description("Create an empty shopping list and verify its metadata")
+  .option("--description <text>", "List description", "")
+  .requiredOption("--confirmation <text>", "Must be exactly CREATE SAVED LIST")
+  .action(async (title: string, cmdOpts) => {
+    if (cmdOpts.confirmation !== "CREATE SAVED LIST") {
+      throw new Error("Confirmation must be exactly CREATE SAVED LIST");
+    }
+    console.log(
+      JSON.stringify(
+        await makeClient().createSavedList(title, cmdOpts.description),
+        null,
+        2,
+      ),
+    );
+  });
+
+savedListCmd
+  .command("replace-product <list-id> <old-product-id> <new-product-id>")
+  .description(
+    "Replace a saved-list product, preserving its quantity by default",
+  )
+  .option("--quantity <number>", "Explicit replacement quantity")
+  .requiredOption("--confirmation <text>", "Must be exactly UPDATE SAVED LIST")
+  .action(
+    async (
+      listId: string,
+      oldProductId: string,
+      newProductId: string,
+      cmdOpts,
+    ) => {
+      if (cmdOpts.confirmation !== "UPDATE SAVED LIST") {
+        throw new Error("Confirmation must be exactly UPDATE SAVED LIST");
+      }
+      const result = await makeClient().replaceProductInSavedList(
+        Number(listId),
+        Number(oldProductId),
+        Number(newProductId),
+        cmdOpts.quantity === undefined ? undefined : Number(cmdOpts.quantity),
+      );
+      console.log(JSON.stringify(result, null, 2));
+      if (result.status !== "verified") process.exitCode = 1;
+    },
+  );
+
+savedListCmd
   .command("list")
   .description("List saved shopping lists")
   .action(async () => {

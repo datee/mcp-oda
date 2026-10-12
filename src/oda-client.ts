@@ -12,6 +12,7 @@ import {
   SavedList,
   SavedListDetail,
   SavedListItem,
+  SavedListReplacementResult,
   ProductSummary,
   CartRecommendation,
   DeliverySlot,
@@ -458,10 +459,12 @@ export class OdaClient {
     url: string,
     body: any,
     referer?: string,
+    signal?: AbortSignal,
   ): Promise<Response> {
     const csrf = this.getCsrfToken();
     const response = await fetch(url, {
       method: "POST",
+      signal,
       headers: {
         ...this.headers,
         Accept: "application/json",
@@ -478,9 +481,10 @@ export class OdaClient {
     return response;
   }
 
-  private async apiGet(url: string): Promise<Response> {
+  private async apiGet(url: string, signal?: AbortSignal): Promise<Response> {
     const csrf = this.getCsrfToken();
     const response = await fetch(url, {
+      signal,
       headers: {
         ...this.headers,
         Accept: "application/json",
@@ -946,10 +950,14 @@ export class OdaClient {
     return lists;
   }
 
-  async getSavedListDetails(listId: number): Promise<SavedListDetail> {
+  async getSavedListDetails(
+    listId: number,
+    signal = AbortSignal.timeout(30_000),
+  ): Promise<SavedListDetail> {
     OdaClient.assertPositiveListId(listId);
     const response = await this.apiGet(
       `${OdaClient.API_BASE}/api/v1/product-lists/${listId}/`,
+      signal,
     );
     if (!response.ok) {
       await this.throwApiError("Get saved list", response);
@@ -962,6 +970,181 @@ export class OdaClient {
         quantity: Number(item.quantity) || 0,
       }));
     return { ...this.parseSavedList(data), items };
+  }
+
+  async createSavedList(title: string, description = ""): Promise<SavedList> {
+    if (
+      typeof title !== "string" ||
+      !title.trim() ||
+      title.trim().length > 255
+    ) {
+      throw new Error("List title must contain 1 to 255 characters");
+    }
+    if (typeof description !== "string") {
+      throw new Error("List description must be a string");
+    }
+    // Never retry creation: a lost response can still mean a list was created.
+    let response: Response;
+    try {
+      response = await this.apiPost(
+        `${OdaClient.API_BASE}/api/v1/product-lists/`,
+        { title: title.trim(), description },
+        `${OdaClient.BASE_URL}/account/lists/`,
+        AbortSignal.timeout(20_000),
+      );
+    } catch {
+      throw new Error(
+        "Create saved list outcome unknown. Check saved lists before retrying.",
+      );
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Create saved list returned HTTP ${response.status}. Check saved lists before retrying.`,
+      );
+    }
+    let id: number;
+    try {
+      const data = await response.json();
+      id = Number(data?.id);
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error();
+    } catch {
+      throw new Error(
+        "Create saved list returned no usable ID. Check saved lists before retrying.",
+      );
+    }
+    try {
+      const list = await this.getSavedListDetails(
+        id,
+        AbortSignal.timeout(10_000),
+      );
+      if (
+        list.id !== id ||
+        list.title !== title.trim() ||
+        list.description !== description
+      ) {
+        throw new Error();
+      }
+      // Return normalized fields only, never the raw API response.
+      const { items: _items, ...summary } = list;
+      return {
+        ...summary,
+        url: `${OdaClient.BASE_URL}/account/lists/details/${id}/`,
+      };
+    } catch {
+      throw new Error(
+        `List ${id} was created but could not be verified. Read that list before retrying.`,
+      );
+    }
+  }
+
+  async replaceProductInSavedList(
+    listId: number,
+    oldProductId: number,
+    newProductId: number,
+    replacementQuantity?: number,
+  ): Promise<SavedListReplacementResult> {
+    OdaClient.assertPositiveListId(listId);
+    if (!Number.isSafeInteger(listId))
+      throw new Error("List ID must be a safe integer");
+    if (
+      ![oldProductId, newProductId].every(
+        (id) => Number.isSafeInteger(id) && id > 0,
+      )
+    ) {
+      throw new Error("Product IDs must be positive safe integers");
+    }
+    if (oldProductId === newProductId)
+      throw new Error("Replacement must be a different product");
+    if (
+      replacementQuantity !== undefined &&
+      (!Number.isSafeInteger(replacementQuantity) || replacementQuantity <= 0)
+    ) {
+      throw new Error("Replacement quantity must be a positive safe integer");
+    }
+    let before: SavedListDetail;
+    try {
+      before = await this.getSavedListDetails(
+        listId,
+        AbortSignal.timeout(10_000),
+      );
+    } catch {
+      throw new Error(
+        "Could not read saved list. No replacement was attempted; check login and list access.",
+      );
+    }
+    if (before.id !== listId) throw new Error("Unexpected saved list response");
+    const oldItems = before.items.filter((item) => item.id === oldProductId);
+    if (oldItems.length !== 1)
+      throw new Error(
+        "Source product must appear exactly once in the saved list",
+      );
+    if (before.items.some((item) => item.id === newProductId)) {
+      throw new Error(
+        "Replacement product is already in the list; merging quantities is not supported",
+      );
+    }
+    const oldQuantity = oldItems[0].quantity;
+    if (!Number.isSafeInteger(oldQuantity) || oldQuantity <= 0) {
+      throw new Error(
+        "Source quantity must be a positive safe integer; zero-quantity items cannot be replaced",
+      );
+    }
+    const quantity = replacementQuantity ?? oldQuantity;
+    let requestStatus: SavedListReplacementResult["request_status"] =
+      "failed_or_unknown";
+    try {
+      const response = await this.apiPost(
+        `${OdaClient.API_BASE}/api/v1/product-lists/${listId}/products/`,
+        [
+          { productId: oldProductId, delete: true, quantity: oldQuantity },
+          { productId: newProductId, quantity },
+        ],
+        `${OdaClient.BASE_URL}/account/lists/details/${listId}/`,
+        AbortSignal.timeout(20_000),
+      );
+      if (response.ok) requestStatus = "acknowledged";
+    } catch {
+      // A timed-out write may have succeeded. Observe state; never resend it.
+    }
+    const result: SavedListReplacementResult = {
+      status: "uncertain",
+      request_status: requestStatus,
+      list_id: listId,
+      old_product_id: oldProductId,
+      new_product_id: newProductId,
+      previous_quantity: oldQuantity,
+      replacement_quantity: quantity,
+      observed: null,
+      message:
+        "Outcome could not be verified. Read the list before retrying; no automatic retry was made.",
+    };
+    try {
+      const after = await this.getSavedListDetails(
+        listId,
+        AbortSignal.timeout(10_000),
+      );
+      if (after.id !== listId) return result;
+      const old = after.items.filter((item) => item.id === oldProductId);
+      const replacement = after.items.filter(
+        (item) => item.id === newProductId,
+      );
+      result.observed = {
+        old_quantities: old.map((item) => item.quantity),
+        new_quantities: replacement.map((item) => item.quantity),
+      };
+      if (
+        old.length === 0 &&
+        replacement.length === 1 &&
+        replacement[0].quantity === quantity
+      ) {
+        result.status = "verified";
+        result.message =
+          "Verified: source product absent and replacement quantity matches.";
+      }
+    } catch {
+      // Do not leak a private response or mistake failed verification for success.
+    }
+    return result;
   }
 
   async addProductToSavedList(

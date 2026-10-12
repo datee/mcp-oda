@@ -147,6 +147,18 @@ export interface SavedListDetail extends SavedList {
   items: SavedListItem[];
 }
 
+export interface SavedListReplacementResult {
+  status: "verified" | "uncertain";
+  request_status: "acknowledged" | "failed_or_unknown";
+  list_id: number;
+  old_product_id: number;
+  new_product_id: number;
+  previous_quantity: number;
+  replacement_quantity: number;
+  observed: { old_quantities: number[]; new_quantities: number[] } | null;
+  message: string;
+}
+
 export interface DeliverySlot {
   id: number;
   starts_at: string;

@@ -40,8 +40,8 @@ This MCP server provides tools to programmatically interact with Oda's grocery s
 
 - **Search products** - Search for groceries with support for Norwegian terms
 - **Browse recipes** - Search, filter, and view recipe details
-- **Saved shopping lists** - View your saved lists, add or remove products, and
-  import a whole list into the cart
+- **Saved shopping lists** - Create and view lists, add/remove products,
+  replace a product with a verified quantity, and import a whole list into the cart
 - **Purchase history** - See your most frequently ordered products
 - **Manage shopping cart** - View cart contents and recommendations, add/remove items or set
   exact quantities, add recipe ingredients
@@ -58,12 +58,32 @@ Use Node.js v22.12 or newer; the current Commander dependency requires it.
 Development of additional saved-list tools is tracked in
 [the development plan](docs/saved-list-development.md), with
 [API research](docs/oda-list-api-research.txt) from Oda's website.
-List creation and replacement are planned; they are not implemented yet.
+This branch implements list creation and verified product replacement.
+The original upstream installation commands below do not include these fork features.
 
 Install dependencies with `npm ci --ignore-scripts`, then run `npm run build`.
 The build supports Windows and Unix. Run `npm run lint` and `npm run test:unit`
 for local checks. The unit test command excludes authenticated integration
 tests, which can modify a real Oda cart.
+
+After building this checkout, use the new CLI commands:
+
+```sh
+node dist/index.js saved-list create "Weekly meals" --confirmation "CREATE SAVED LIST"
+node dist/index.js saved-list replace-product 123 456 789 --confirmation "UPDATE SAVED LIST"
+# Override the replacement quantity instead of preserving the original count:
+node dist/index.js saved-list replace-product 123 456 789 --quantity 2 --confirmation "UPDATE SAVED LIST"
+```
+
+Use the global `--data-dir <path>` option before `saved-list` to select an existing
+local session directory. The corresponding MCP tools are `saved_list_create`
+and `saved_list_replace_product`. Both require user authorization and a
+confirmation argument; they affect saved lists only. Replacement rejects a target
+already present in the list and source items with zero quantity. It reads the
+list before and after the write, reporting `verified` or `uncertain`. Uncertain
+results are MCP errors and CLI exit code 1; inspect the list before retrying.
+Creation errors likewise require checking whether the list was created before
+retrying, to avoid duplicates.
 
 ## Usage
 
