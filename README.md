@@ -41,7 +41,8 @@ This MCP server provides tools to programmatically interact with Oda's grocery s
 - **Search products** - Search for groceries with support for Norwegian terms
 - **Browse recipes** - Search, filter, and view recipe details
 - **Saved shopping lists** - Create and view lists, add/remove products,
-  replace a product with a verified quantity, and import a whole list into the cart
+  replace a product with a verified quantity, get view-only or editing sharing
+  links, and import a whole list into the cart
 - **Purchase history** - See your most frequently ordered products
 - **Manage shopping cart** - View cart contents and recommendations, add/remove items or set
   exact quantities, add recipe ingredients
@@ -58,7 +59,7 @@ Use Node.js v22.12 or newer; the current Commander dependency requires it.
 Development of additional saved-list tools is tracked in
 [the development plan](docs/saved-list-development.md), with
 [API research](docs/oda-list-api-research.txt) from Oda's website.
-This branch implements list creation and verified product replacement.
+This branch implements list creation, verified product replacement and sharing links.
 The original upstream installation commands below do not include these fork features.
 
 Install dependencies with `npm ci --ignore-scripts`, then run `npm run build`.
@@ -84,6 +85,31 @@ list before and after the write, reporting `verified` or `uncertain`. Uncertain
 results are MCP errors and CLI exit code 1; inspect the list before retrying.
 Creation errors likewise require checking whether the list was created before
 retrying, to avoid duplicates.
+
+### Sharing a saved list
+
+The `saved_list_get_share_link` MCP tool accepts `list_id` and an optional
+`access` of `view` or `edit`. There is deliberately no default. Without `access`,
+it returns `needs_access_choice` and asks: "Should the recipient only view the
+list, or also be able to edit your original list?" This step makes no Oda request
+and returns no URL. The assistant must relay the question and wait for the user.
+If the user already explicitly specified the access level, it need not ask again.
+
+With an explicit choice, the tool reads the existing link from Oda and returns
+only that URL. It does not send the link to a recipient or modify the list.
+Editing links are access keys to the original list, not independent copies.
+Actual recipient editing, quantity preservation when saving a copy, and link
+revocation have not been verified. Do not promise those behaviors.
+
+The CLI requires an explicit access flag:
+
+```sh
+node dist/index.js saved-list share 123 --access view
+node dist/index.js saved-list share 123 --access edit
+```
+
+Do not publish sharing URLs in logs or test fixtures. Only disclose a link when
+the user requests sharing that specific list and has chosen its access level.
 
 ## Usage
 

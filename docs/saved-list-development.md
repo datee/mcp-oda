@@ -6,7 +6,7 @@ until the extension has been validated and deliberately deployed.
 
 ## Current status
 
-This branch implements list creation and verified product replacement, alongside
+This branch implements list creation, verified product replacement and explicit-choice sharing links, alongside
 the existing read, add/remove and import-to-cart tools. Standalone exact-quantity
 updates and metadata updates remain planned. [API research](oda-list-api-research.txt) identifies the
 website requests for these operations. These are private website endpoints,
@@ -32,6 +32,11 @@ described below. This was the baseline before implementing the extension.
    quantity and deletion.
 4. Planned: `saved_list_update_metadata(list_id, title?, description?)`, preserving
    fields not supplied by the caller.
+5. Implemented: `saved_list_get_share_link(list_id, access?)`. Without an explicit
+   `view` or `edit` choice, returns a question and no link. The assistant must ask
+   the user and wait; there is no default. An explicit choice returns only the
+   selected existing URL, with an explanation of its access. No recipients are
+   contacted and no sharing permissions are changed by the tool.
 
 Keep client methods, MCP tools and CLI commands consistent. Reuse existing
 session/CSRF handling and correct list-page Referer headers. Add accurate MCP
@@ -75,7 +80,23 @@ This does not establish server-side atomicity or protection against simultaneous
 edits by another client. A replacement already present in the list and a source
 with zero quantity are rejected before writing. Unavailable-product errors are
 handled as uncertain outcomes and are followed by a read; unavailable products
-were not exercised live. The running installation has not been switched to this fork.
+were not exercised live. Commit afc58a0 was deployed as a separate pinned runtime
+on 12 October 2026; development checkout changes do not automatically go live.
+
+Sharing verification on 12 October 2026: both URL types were retrieved using
+read-only requests and validated as distinct Oda URLs. No actual links were
+printed or sent to recipients, and no list changes were made. The 34 additional
+sharing tests pass, including choice prompts, no implicit defaults, selected-link
+isolation, URL validation and token redaction in errors/logs. The full offline
+suite now passes 148 of 151 tests; the same three baseline Windows file-mode
+assertions fail. Build and lint pass. The server advertises 22 tools.
+
+The server cannot prove that a supplied access choice originated from the human;
+the assistant must follow the tool instructions. If access is omitted, code
+enforces the question-only response without contacting Oda. The schema rejects
+unknown access values. Link revocation and recipient edit behavior remain
+unverified. The website's login-gated save-to-list flow is code-verified but its
+final cross-account save has not been live-tested.
 
 ## Local commands
 

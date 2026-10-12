@@ -155,6 +155,48 @@ export class OdaServer {
     );
 
     this.mcpServer.registerTool(
+      "saved_list_get_share_link",
+      {
+        description:
+          "Get an Oda sharing URL only when the user requests sharing this specific list. Ask whether recipients should only view it or also edit the ORIGINAL list. Never infer or default the access choice. If the user has not explicitly chosen, omit access and relay the returned question before requesting a link. If their request already specifies view-only or edit access, use that choice without asking again. Returns only the chosen link; does not send it to anyone. Treat editing URLs as access keys. Recipient copy behavior and link revocation are not guaranteed.",
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+        inputSchema: {
+          list_id: z.number().int().positive(),
+          access: z
+            .enum(["view", "edit"])
+            .optional()
+            .describe(
+              "The user's explicit choice. Omit when unspecified to ask; there is no default.",
+            ),
+        },
+      },
+      this.toolHandler(
+        "saved_list_get_share_link",
+        async ({ list_id, access }) => {
+          if (access === undefined) {
+            return this.jsonResult({
+              status: "needs_access_choice",
+              question:
+                "Should the recipient only view the list, or also be able to edit your original list?",
+              choices: [
+                { access: "view", label: "View only" },
+                { access: "edit", label: "Edit the original list" },
+              ],
+            });
+          }
+          return this.jsonResult(
+            await this.getClient().getSavedListShareLink(list_id, access),
+          );
+        },
+      ),
+    );
+
+    this.mcpServer.registerTool(
       "saved_list_create",
       {
         description:

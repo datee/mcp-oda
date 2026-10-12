@@ -51,7 +51,7 @@ describe("saved-list MCP tools", () => {
 
   it("advertises write annotations and required confirmation", async () => {
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(21);
+    expect(tools).toHaveLength(22);
     const create = tools.find((tool) => tool.name === "saved_list_create")!;
     const replace = tools.find(
       (tool) => tool.name === "saved_list_replace_product",
@@ -78,6 +78,88 @@ describe("saved-list MCP tools", () => {
     });
     expect(result.isError).toBe(true);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("asks for the user's access choice without retrieving a link", async () => {
+    const share = vi.spyOn(api, "getSavedListShareLink");
+    const result = await client.callTool({
+      name: "saved_list_get_share_link",
+      arguments: { list_id: 12 },
+    });
+    expect(result.isError).not.toBe(true);
+    const content = result.content as { type: string; text: string }[];
+    const data = JSON.parse(content[0].text);
+    expect(data.status).toBe("needs_access_choice");
+    expect(data.question).toContain("edit your original list");
+    expect(
+      data.choices.map((choice: { access: string }) => choice.access),
+    ).toEqual(["view", "edit"]);
+    expect(data.url).toBeUndefined();
+    expect(share).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["view", "edit"] as const)(
+    "passes the explicit %s sharing choice without asking again",
+    async (access) => {
+      const share = vi.spyOn(api, "getSavedListShareLink").mockResolvedValue({
+        list_id: 12,
+        title: "Test",
+        access,
+        url: `https://oda.com/?pltoken=fake-${access}`,
+        notice: "Test only",
+      });
+      const result = await client.callTool({
+        name: "saved_list_get_share_link",
+        arguments: { list_id: 12, access },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(share).toHaveBeenCalledExactlyOnceWith(12, access);
+      expect(JSON.stringify(result.content)).not.toContain(
+        "needs_access_choice",
+      );
+    },
+  );
+
+  it("rejects invalid sharing access instead of defaulting", async () => {
+    const share = vi.spyOn(api, "getSavedListShareLink");
+    const result = await client.callTool({
+      name: "saved_list_get_share_link",
+      arguments: { list_id: 12, access: "admin" },
+    });
+    expect(result.isError).toBe(true);
+    expect(share).not.toHaveBeenCalled();
+  });
+
+  it("advertises a read-only sharing tool with no access default", async () => {
+    const { tools } = await client.listTools();
+    const share = tools.find(
+      (tool) => tool.name === "saved_list_get_share_link",
+    )!;
+    expect(share.annotations).toMatchObject({
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+    expect(share.inputSchema.properties?.access).not.toHaveProperty("default");
+    expect(share.description).toContain("Never infer or default");
+  });
+
+  it("keeps access links out of tool errors and server logs", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ detail: "https://oda.com/?pltoken=secret-link" }),
+        { status: 403 },
+      ),
+    );
+    const result = await client.callTool({
+      name: "saved_list_get_share_link",
+      arguments: { list_id: 12, access: "view" },
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("secret-link");
+    expect(
+      fs.readFileSync(path.join(dir, "mcp-oda.log"), "utf8"),
+    ).not.toContain("secret-link");
   });
 
   it("dispatches normalized creation arguments", async () => {

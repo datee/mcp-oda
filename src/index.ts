@@ -149,6 +149,22 @@ const savedListCmd = program
   .description("Saved Oda shopping-list commands");
 
 savedListCmd
+  .command("share <list-id>")
+  .description(
+    "Return a view-only or editing link; editing changes the original list",
+  )
+  .requiredOption("--access <view|edit>", "Explicit sharing access; no default")
+  .action(async (listId: string, cmdOpts) => {
+    console.log(
+      JSON.stringify(
+        await makeClient().getSavedListShareLink(Number(listId), cmdOpts.access),
+        null,
+        2,
+      ),
+    );
+  });
+
+savedListCmd
   .command("create <title>")
   .description("Create an empty shopping list and verify its metadata")
   .option("--description <text>", "List description", "")

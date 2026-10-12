@@ -12,6 +12,8 @@ import {
   SavedList,
   SavedListDetail,
   SavedListItem,
+  SavedListShareAccess,
+  SavedListShareLink,
   SavedListReplacementResult,
   ProductSummary,
   CartRecommendation,
@@ -970,6 +972,71 @@ export class OdaClient {
         quantity: Number(item.quantity) || 0,
       }));
     return { ...this.parseSavedList(data), items };
+  }
+
+  async getSavedListShareLink(
+    listId: number,
+    access: SavedListShareAccess,
+  ): Promise<SavedListShareLink> {
+    if (!Number.isSafeInteger(listId) || listId <= 0) {
+      throw new Error("List ID must be a positive safe integer");
+    }
+    if (access !== "view" && access !== "edit") {
+      throw new Error(
+        "Choose view or edit access explicitly; there is no default",
+      );
+    }
+    let data: any;
+    try {
+      const response = await this.apiGet(
+        `${OdaClient.API_BASE}/api/v1/product-lists/${listId}/`,
+        AbortSignal.timeout(10_000),
+      );
+      if (!response.ok) throw new Error();
+      data = await response.json();
+    } catch {
+      // Error bodies can contain access URLs. Never include them in logs/results.
+      throw new Error(
+        "Could not retrieve sharing information. Check login and list access.",
+      );
+    }
+    if (Number(data?.id) !== listId) {
+      throw new Error(
+        "Unexpected saved list response; no sharing link returned",
+      );
+    }
+    const raw = data[`share_url_${access}_access`];
+    if (typeof raw !== "string" || !raw.trim()) {
+      throw new Error(`No ${access} sharing link is available for this list`);
+    }
+    let url: URL;
+    try {
+      url = new URL(raw, OdaClient.API_BASE);
+      if (url.origin !== OdaClient.API_BASE || url.username || url.password) {
+        throw new Error();
+      }
+      // Do not silently return editing access for a view-only request.
+      if (
+        access === "view" &&
+        typeof data.share_url_edit_access === "string" &&
+        url.href ===
+          new URL(data.share_url_edit_access, OdaClient.API_BASE).href
+      ) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error("Invalid or ambiguous sharing link; no link returned");
+    }
+    return {
+      list_id: listId,
+      title: typeof data.title === "string" ? data.title : "Untitled list",
+      access,
+      url: url.href,
+      notice:
+        access === "edit"
+          ? "This is an editing link for your original list. Treat it as an access key and share it only with intended recipients."
+          : "This is a view-only link. Anyone with the link can view the list; it does not grant editing access to your original list.",
+    };
   }
 
   async createSavedList(title: string, description = ""): Promise<SavedList> {

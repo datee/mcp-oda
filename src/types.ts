@@ -147,6 +147,16 @@ export interface SavedListDetail extends SavedList {
   items: SavedListItem[];
 }
 
+export type SavedListShareAccess = "view" | "edit";
+
+export interface SavedListShareLink {
+  list_id: number;
+  title: string;
+  access: SavedListShareAccess;
+  url: string;
+  notice: string;
+}
+
 export interface SavedListReplacementResult {
   status: "verified" | "uncertain";
   request_status: "acknowledged" | "failed_or_unknown";
