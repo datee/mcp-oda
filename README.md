@@ -51,7 +51,19 @@ This MCP server provides tools to programmatically interact with Oda's grocery s
 
 ## Installation
 
-This project requires Node.js (v18+).
+Use Node.js v22.12 or newer; the current Commander dependency requires it.
+
+### Fork development
+
+Development of additional saved-list tools is tracked in
+[the development plan](docs/saved-list-development.md), with
+[API research](docs/oda-list-api-research.txt) from Oda's website.
+List creation and replacement are planned; they are not implemented yet.
+
+Install dependencies with `npm ci --ignore-scripts`, then run `npm run build`.
+The build supports Windows and Unix. Run `npm run lint` and `npm run test:unit`
+for local checks. The unit test command excludes authenticated integration
+tests, which can modify a real Oda cart.
 
 ## Usage
 

@@ -1,0 +1,115 @@
+ODA SHOPPING-LIST API INVESTIGATION
+Date: 12 October 2026
+Scope: Read-only investigation; no list/cart/order mutations performed.
+
+CONCLUSION
+The current Oda website implements both list creation and single-request
+product replacement. These capabilities are missing from the installed MCP
+tool interface, rather than missing from the website's underlying API.
+This is Oda's website API, not a published, supported integration contract.
+No changes were made to the installed MCP server or plugin.
+
+EVIDENCE AND CONFIDENCE
+1. Inspected installed MCP source at commit
+   e9e708075e90ada2fc9bd4b8a255a4b5848a21f8.
+2. Read authenticated list overview, edit and detail pages with GET.
+   Private page bodies and session credentials were not exported.
+3. Downloaded and examined Oda's public JavaScript assets.
+4. Sent OPTIONS requests to the list collection, an existing owned list,
+   and its products endpoint. OPTIONS itself returned 405, but Allow headers
+   advertised GET/POST, GET/POST/DELETE, and POST respectively.
+   These headers confirm routing/method support, not successful writes.
+5. No POST, PUT, PATCH or DELETE requests were sent in this investigation.
+
+CREATE A LIST
+POST https://oda.com/api/v1/product-lists/
+JSON body constructed by the website:
+  {"title":"Example list","description":"Optional description"}
+The create form calls useCreateProductListMutation, which wraps
+postProductListsApiIndexMutation. On success the page navigates using the
+returned object's id. The website requires a nonempty name and limits its
+title input to 255 characters. Backend validation has not been tested.
+
+RENAME / EDIT DESCRIPTION
+POST https://oda.com/api/v1/product-lists/{list_id}/
+The edit form sends title and description through
+useUpdateListMetadataMutation. An implementation should read current values
+and preserve fields the user did not ask to change.
+
+REPLACE A PRODUCT IN ONE REQUEST
+POST https://oda.com/api/v1/product-lists/{list_id}/products/
+The website's replaceProduct(oldId, newId, quantity) builds this bare array:
+  [
+    {"productId":111,"delete":true,"quantity":2},
+    {"productId":222,"quantity":2}
+  ]
+Example IDs only. The site takes quantity from the original list item.
+This is concrete evidence for batching removal and addition in one request.
+It does NOT prove that the backend transaction is atomic. The replacement
+product's behavior when already present in the list is also unverified.
+Read the list before a replacement and verify both affected items afterward.
+Do not automatically retry a timed-out mutation before checking its outcome.
+
+SET AN EXACT QUANTITY
+Same products endpoint, with a bare array:
+  [{"productId":222,"quantity":3,"overrideQuantity":true}]
+The quantity stepper sends the desired count with overrideQuantity=true.
+The website also has setItemQuantityAllowZero, which retains zero using this
+flag and requests deletion separately. Therefore quantity zero should not
+automatically be treated as equivalent to deleting a saved-list item.
+The normal add button sends quantity=1 without the override flag; this
+indicates incremental-add versus absolute-set behavior in the website.
+Exact backend edge cases remain to be tested on a disposable list.
+
+OTHER DISCOVERED OPERATIONS
+- Delete list: DELETE /api/v1/product-lists/{list_id}/.
+  Present in the API client and used by the edit page's delete flow.
+- Copy list: POST /api/v1/product-lists/{list_id}/copy/.
+  Present in the generated website API client. Request/response behavior
+  and naming semantics were not established by this investigation.
+- List suggestions: GET /api/v1/product-lists/{list_id}/suggestions/.
+  Present in the website API client; not exposed by the current MCP.
+- List image upload/removal endpoints also appear in the API client.
+  They were not investigated further.
+- A /product-lists/new/ POST route also exists in the generated API client,
+  but the observed ordinary create-list form uses /product-lists/ instead.
+
+CURRENT MCP LIMITATIONS / ISSUES TO VERIFY
+- It only exposes list reads, product addition/removal and import to cart.
+- No create, rename, delete, copy, replace or exact-list-quantity tools exist.
+- Current removal sends quantity=-1 with delete=true. The observed website
+  uses delete=true with a positive count (or a large count in one flow).
+  This discrepancy is a test target, not proof the existing method is broken.
+- Existing code handles CSRF/session cookies and origin checking for
+  pagination; new tools should retain those protections.
+- The current integration's API notes specify camelCase keys and a bare
+  array for list-product mutations; the website code corroborates that shape.
+- Preserve the actual list URL as Referer; existing integration notes say
+  the products endpoint checks it. Credentials must stay in local session
+  storage and must never be included in tool results.
+
+RECOMMENDED FIRST EXTENSION
+1. saved_list_create(title, description?) -> created ID and summary.
+2. saved_list_replace_product(list_id, old_product_id, new_product_id,
+   replacement_quantity?) -> verified before/after summary.
+3. saved_list_set_quantity(list_id, product_id, quantity) -> verified count.
+4. saved_list_update_metadata(list_id, title?, description?).
+Keep deletion/copy as separate optional work. Use explicit write/destructive
+annotations and clear confirmation behavior. Test creation, missing IDs,
+already-present replacements, zero counts, timeouts and partial outcomes.
+Implementation and live mutation tests have not been performed.
+
+PRIMARY SOURCES
+Oda API client: routes and /api/v1 base URL
+https://oda.com/_next/static/chunks/1a0syxmw-d7uj.js
+Create-list mutation wrapper
+https://oda.com/_next/static/chunks/42y3uviecw20g.js
+Create/edit forms and delete flow
+https://oda.com/_next/static/chunks/3olgye1g49khb.js
+List replacement and quantity logic
+https://oda.com/_next/static/chunks/1kvchbr34cbjg.js
+Installed community server API notes
+https://github.com/gbbirkisson/mcp-oda/blob/e9e708075e90ada2fc9bd4b8a255a4b5848a21f8/ODA_API.md
+
+The public asset URLs are deployment-specific and may change. Raw website
+assets and private session data are not included in this repository.
